@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>幻日 · 直播</title>
+<style>
+  :root{ --bg:#0f1115; --line:#2a3040; --fg:#d6dae3; --dim:#8b93a5; --acc:#e8b04a; }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{ background:var(--bg); color:var(--fg); font:15px/1.7 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif; min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; padding:24px;}
+  a.back{ color:var(--dim); text-decoration:none; font-size:14px; position:fixed; top:18px; left:22px;}
+  a.back:hover{ color:var(--acc);}
+  #stage{ position:relative; width:min(92vw,1100px); aspect-ratio:16/9; background:#000; border:1px solid var(--line); border-radius:8px; overflow:hidden;}
+  video{ width:100%; height:100%; display:block;}
+  .ph{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; color:var(--dim);}
+  .ph .big{ font-size:22px; color:var(--fg); letter-spacing:3px;}
+  .live{ display:flex; align-items:center; gap:8px; color:var(--dim); font-size:13px;}
+  .live i{ width:8px; height:8px; border-radius:50%; background:#57c78a; display:inline-block;}
+  .live i.off{ background:#5a6272;}
+  .hint{ color:var(--dim); font-size:13px; max-width:640px; text-align:center;}
+  code{ font-family:ui-monospace,Menlo,monospace; font-size:13px; background:#161a21; padding:1px 6px; border-radius:4px; color:var(--acc);}
+  @media (max-aspect-ratio:4/5){ #stage{ width:92vw; aspect-ratio:auto; height:52vh;} }
+</style>
+</head>
+<body>
+
+<a class="back" href="/">&larr; 回主页</a>
+
+<div id="stage">
+  <video id="video" muted autoplay playsinline></video>
+  <div class="ph" id="ph">
+    <div class="big">直播未开始</div>
+    <div>流地址接到 <code>?src=</code> 后这里自动开播</div>
+  </div>
+</div>
+
+<div class="live"><i id="dot" class="off"></i><span id="state">待命</span></div>
+<div class="hint">用法：把 HLS/LL-HLS 流地址拼到网址后面，例如 <code>imgillusion.github.io/live.html?src=你的流地址.m3u8</code>。低延迟直播走 LL-HLS 或 WebRTC，观众侧播放器已就绪。</div>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js"></script>
+<script>
+(function(){
+  var v = document.getElementById('video');
+  var ph = document.getElementById('ph');
+  var dot = document.getElementById('dot');
+  var state = document.getElementById('state');
+  var src = new URLSearchParams(location.search).get('src');
+  if(!src) return; // 没有流地址就停在待命画面
+  function on(ok, txt){ state.textContent = txt; dot.className = ok ? '' : 'off'; if(ok) ph.style.display='none'; }
+  if(window.Hls && Hls.isSupported()){
+    var hls = new Hls({ lowLatencyMode:true, backBufferLength:30 });
+    hls.loadSource(src);
+    hls.attachMedia(v);
+    hls.on(Hls.Events.MANIFEST_PARSED, function(){ v.play().catch(function(){}); on(true,'直播中'); });
+    hls.on(Hls.Events.ERROR, function(_, d){
+      if(!d.fatal) return;
+      if(d.type === Hls.ErrorTypes.NETWORK_ERROR){ hls.startLoad(); on(false,'网络抖动，重连中'); }
+      else if(d.type === Hls.ErrorTypes.MEDIA_ERROR){ hls.recoverMediaError(); on(false,'流中断，恢复中'); }
+      else { on(false,'流已结束或不可用'); }
+    });
+  } else if(v.canPlayType('application/vnd.apple.mpegurl')){
+    v.src = src;
+    v.addEventListener('loadedmetadata', function(){ on(true,'直播中'); });
+    v.addEventListener('error', function(){ on(false,'流不可用'); });
+  } else { on(false,'此浏览器不支持 HLS'); }
+})();
+</script>
+
+</body>
+</html>
