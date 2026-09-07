@@ -1,70 +1,344 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>幻日 · 直播</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b0c10">
+<title>幻日的直播间</title>
+<script src="/hls.min.js"></script>
 <style>
-  :root{ --bg:#0f1115; --line:#2a3040; --fg:#d6dae3; --dim:#8b93a5; --acc:#e8b04a; }
-  *{box-sizing:border-box; margin:0; padding:0;}
-  body{ background:var(--bg); color:var(--fg); font:15px/1.7 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif; min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; padding:24px;}
-  a.back{ color:var(--dim); text-decoration:none; font-size:14px; position:fixed; top:18px; left:22px;}
-  a.back:hover{ color:var(--acc);}
-  #stage{ position:relative; width:min(92vw,1100px); aspect-ratio:16/9; background:#000; border:1px solid var(--line); border-radius:8px; overflow:hidden;}
-  video{ width:100%; height:100%; display:block;}
-  .ph{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; color:var(--dim);}
-  .ph .big{ font-size:22px; color:var(--fg); letter-spacing:3px;}
-  .live{ display:flex; align-items:center; gap:8px; color:var(--dim); font-size:13px;}
-  .live i{ width:8px; height:8px; border-radius:50%; background:#57c78a; display:inline-block;}
-  .live i.off{ background:#5a6272;}
-  .hint{ color:var(--dim); font-size:13px; max-width:640px; text-align:center;}
-  code{ font-family:ui-monospace,Menlo,monospace; font-size:13px; background:#161a21; padding:1px 6px; border-radius:4px; color:var(--acc);}
-  @media (max-aspect-ratio:4/5){ #stage{ width:92vw; aspect-ratio:auto; height:52vh;} }
+:root{
+  --bg:#0b0c10; --panel:#14161c; --panel2:#191c24; --line:#242834;
+  --txt:#e8eaf0; --muted:#8b91a3; --accent:#4f7cff; --pink:#fb7299; --ok:#3ecf8e; --err:#ff6b6b;
+}
+*{box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{background:var(--bg); color:var(--txt); font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif; font-size:15px; line-height:1.5}
+button{font-family:inherit; cursor:pointer; border:none; background:none; color:inherit}
+input{font-family:inherit; outline:none}
+
+/* ---------- 顶栏 ---------- */
+.topbar{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:10px;
+  height:52px; padding:0 16px; padding-top:env(safe-area-inset-top);
+  background:rgba(11,12,16,.92); backdrop-filter:blur(8px); border-bottom:1px solid var(--line)}
+.topbar .logo{width:9px; height:9px; border-radius:50%; background:var(--pink); box-shadow:0 0 8px var(--pink)}
+.topbar .title{font-weight:600; font-size:15px; letter-spacing:.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.topbar .live-badge{font-size:11px; color:var(--pink); border:1px solid rgba(251,114,153,.4); border-radius:99px; padding:1px 8px; flex:none}
+.topbar .spacer{flex:1}
+.me-chip{display:flex; align-items:center; gap:6px; font-size:13px; color:var(--muted);
+  background:var(--panel2); border:1px solid var(--line); border-radius:99px; padding:3px 10px; max-width:40vw}
+.me-chip b{color:var(--txt); font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:14vw}
+#logoutBtn{color:var(--muted); font-size:12px; padding:4px 6px; border-radius:6px}
+#logoutBtn:hover{color:var(--err); background:rgba(255,107,107,.1)}
+
+/* ---------- 主区域 ---------- */
+.main{max-width:1100px; margin:0 auto; padding:16px 16px calc(16px + env(safe-area-inset-bottom))}
+.stage{position:relative; width:100%; aspect-ratio:16/9; background:#000; border-radius:14px; overflow:hidden;
+  border:1px solid var(--line); box-shadow:0 8px 32px rgba(0,0,0,.5)}
+#video{position:absolute; inset:0; width:100%; height:100%; object-fit:contain; background:#000}
+.stage-empty{position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; color:var(--muted); font-size:14px}
+.stage-empty .spin{width:34px; height:34px; border-radius:50%; border:3px solid var(--line); border-top-color:var(--pink); animation:sp 1s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.stage-empty.hidden{display:none}
+
+/* ---------- 弹幕（显示区域） ---------- */
+.dm-layer{position:absolute; inset:0; overflow:hidden; pointer-events:none; z-index:5}
+.dm{position:absolute; left:100%; white-space:nowrap; font-size:clamp(13px,2.2vw,18px); font-weight:500;
+  color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.9),0 0 6px rgba(0,0,0,.6); will-change:transform;
+  animation:dmMove linear forwards}
+.dm .who{color:var(--pink); margin-right:8px; font-size:.85em}
+@keyframes dmMove{from{transform:translateX(0)} to{transform:translateX(var(--dmx))}}
+
+/* ---------- 发送区域 ---------- */
+.sendbar{display:flex; gap:10px; margin-top:14px}
+#dmInput{flex:1; height:46px; border-radius:12px; background:var(--panel); border:1px solid var(--line);
+  color:var(--txt); font-size:16px; padding:0 16px; transition:border-color .15s}
+#dmInput::placeholder{color:var(--muted)}
+#dmInput:focus{border-color:var(--accent)}
+#sendBtn{height:46px; padding:0 26px; border-radius:12px; background:var(--accent); color:#fff; font-size:15px; font-weight:600;
+  transition:filter .15s, transform .05s}
+#sendBtn:hover{filter:brightness(1.12)}
+#sendBtn:active{transform:scale(.97)}
+#sendBtn:disabled{background:var(--panel2); color:var(--muted); cursor:not-allowed}
+.hint{margin-top:10px; font-size:12px; color:var(--muted); text-align:center}
+.hint.warn{color:var(--err)}
+
+/* ---------- 登录遮罩 ---------- */
+.overlay{position:fixed; inset:0; z-index:50; background:rgba(5,6,10,.78); backdrop-filter:blur(6px);
+  display:flex; align-items:center; justify-content:center; padding:20px}
+.overlay.hidden{display:none}
+.card{width:100%; max-width:340px; background:var(--panel); border:1px solid var(--line); border-radius:18px;
+  padding:26px 24px calc(22px + env(safe-area-inset-bottom)); box-shadow:0 16px 48px rgba(0,0,0,.6)}
+.card h2{font-size:17px; font-weight:600; text-align:center}
+.card .sub{font-size:12px; color:var(--muted); text-align:center; margin:6px 0 18px}
+.tabs{display:flex; background:var(--panel2); border-radius:10px; padding:3px; margin-bottom:16px}
+.tabs button{flex:1; height:34px; border-radius:8px; font-size:14px; color:var(--muted); transition:all .15s}
+.tabs button.on{background:var(--accent); color:#fff; font-weight:600}
+.field{margin-bottom:12px}
+.field input{width:100%; height:44px; border-radius:10px; background:var(--panel2); border:1px solid var(--line);
+  color:var(--txt); font-size:15px; padding:0 14px; transition:border-color .15s}
+.field input:focus{border-color:var(--accent)}
+.field label{display:block; font-size:12px; color:var(--muted); margin-bottom:5px}
+.card .err{font-size:12px; color:var(--err); min-height:18px; text-align:center; margin-bottom:10px}
+.btn-primary{width:100%; height:44px; border-radius:10px; background:var(--accent); color:#fff; font-size:15px; font-weight:600; transition:filter .15s}
+.btn-primary:hover{filter:brightness(1.12)}
+.btn-primary:disabled{opacity:.5; cursor:not-allowed}
+.pwd-tip{font-size:11px; color:var(--muted); text-align:center; margin-top:12px}
+
+/* ---------- 手机端 ---------- */
+@media (max-width:640px){
+  .main{padding:10px 10px calc(10px + env(safe-area-inset-bottom))}
+  .stage{border-radius:10px}
+  .sendbar{margin-top:10px}
+  #dmInput,#sendBtn{height:44px}
+}
 </style>
 </head>
 <body>
 
-<a class="back" href="/">&larr; 回主页</a>
+<div class="topbar">
+  <span class="logo"></span>
+  <span class="title">幻日的直播间</span>
+  <span class="live-badge">LIVE</span>
+  <span class="spacer"></span>
+  <span class="me-chip">👤 <b id="meName">未登录</b></span>
+  <button id="logoutBtn" title="退出登录">退出</button>
+</div>
 
-<div id="stage">
-  <video id="video" muted autoplay playsinline></video>
-  <div class="ph" id="ph">
-    <div class="big">直播未开始</div>
-    <div>流地址接到 <code>?src=</code> 后这里自动开播</div>
+<div class="main">
+  <div class="stage" id="stage">
+    <video id="video" autoplay muted playsinline webkit-playsinline></video>
+    <div class="dm-layer" id="dmLayer"></div>
+    <div class="stage-empty" id="stageEmpty">
+      <div class="spin"></div>
+      <div id="emptyText">等待开播，稍等一下</div>
+    </div>
+  </div>
+
+  <div class="sendbar">
+    <input id="dmInput" type="text" maxlength="200" placeholder="发条弹幕聊聊" autocomplete="off" enterkeyhint="send">
+    <button id="sendBtn" disabled>发送</button>
+  </div>
+  <div class="hint" id="hint"></div>
+</div>
+
+<div class="overlay" id="loginOverlay">
+  <div class="card">
+    <h2>进入直播间</h2>
+    <div class="sub">发言前先报名字，防止有人乱说话</div>
+    <div class="tabs">
+      <button id="tabLogin" class="on">登录</button>
+      <button id="tabReg">注册</button>
+    </div>
+    <div class="field">
+      <label>昵称</label>
+      <input id="nickInput" type="text" maxlength="20" placeholder="你的昵称" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>密码</label>
+      <input id="pwdInput" type="password" maxlength="64" placeholder="至少 4 位">
+    </div>
+    <div class="err" id="authErr"></div>
+    <button class="btn-primary" id="authBtn">登录</button>
+    <div class="pwd-tip" id="pwdTip">没注册过？先点「注册」</div>
   </div>
 </div>
 
-<div class="live"><i id="dot" class="off"></i><span id="state">待命</span></div>
-<div class="hint">用法：把 HLS/LL-HLS 流地址拼到网址后面，例如 <code>imgillusion.github.io/live.html?src=你的流地址.m3u8</code>。低延迟直播走 LL-HLS 或 WebRTC，观众侧播放器已就绪。</div>
-
-<script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js"></script>
 <script>
-(function(){
-  var v = document.getElementById('video');
-  var ph = document.getElementById('ph');
-  var dot = document.getElementById('dot');
-  var state = document.getElementById('state');
-  var src = new URLSearchParams(location.search).get('src');
-  if(!src) return; // 没有流地址就停在待命画面
-  function on(ok, txt){ state.textContent = txt; dot.className = ok ? '' : 'off'; if(ok) ph.style.display='none'; }
-  if(window.Hls && Hls.isSupported()){
-    var hls = new Hls({ lowLatencyMode:true, backBufferLength:30 });
-    hls.loadSource(src);
-    hls.attachMedia(v);
-    hls.on(Hls.Events.MANIFEST_PARSED, function(){ v.play().catch(function(){}); on(true,'直播中'); });
-    hls.on(Hls.Events.ERROR, function(_, d){
-      if(!d.fatal) return;
-      if(d.type === Hls.ErrorTypes.NETWORK_ERROR){ hls.startLoad(); on(false,'网络抖动，重连中'); }
-      else if(d.type === Hls.ErrorTypes.MEDIA_ERROR){ hls.recoverMediaError(); on(false,'流中断，恢复中'); }
-      else { on(false,'流已结束或不可用'); }
-    });
-  } else if(v.canPlayType('application/vnd.apple.mpegurl')){
-    v.src = src;
-    v.addEventListener('loadedmetadata', function(){ on(true,'直播中'); });
-    v.addEventListener('error', function(){ on(false,'流不可用'); });
-  } else { on(false,'此浏览器不支持 HLS'); }
-})();
-</script>
+/* ================= 配置 =================
+   ?api=https://xxx.trycloudflare.com
+   ?src=https://xxx.trycloudflare.com/hls/index.m3u8
+   也可以在下面把默认值写死（留空则读 URL 参数） */
+var CFG = {
+  api: new URLSearchParams(location.search).get("api") || "",
+  src: new URLSearchParams(location.search).get("src") || ""
+};
+if (!CFG.api) CFG.api = "";   // 默认 API 基址，可写死
+if (!CFG.src) CFG.src = "";   // 默认 HLS 地址，可写死
 
+var LS_TOKEN = "liveself_token", LS_USER = "liveself_user";
+var $ = function(id){ return document.getElementById(id); };
+var video = $("video"), dmLayer = $("dmLayer"), stage = $("stage");
+var state = { token: "", user: "", loggedIn: false, lastTs: 0, seen: new Set(), hls: null };
+var DM_SPEED = 150;         // px/s，弹幕滚动速度
+var LANES = 8;
+var laneFreeAt = new Array(LANES).fill(0);
+
+/* ================= 工具 ================= */
+function hint(msg, warn){ var h = $("hint"); h.textContent = msg || ""; h.className = "hint" + (warn ? " warn" : ""); }
+async function api(path, body){
+  var r = await fetch(CFG.api + path, {
+    method: body ? "POST" : "GET",
+    headers: body ? {"Content-Type":"application/json"} : {},
+    body: body ? JSON.stringify(body) : null
+  });
+  var j = {}; try { j = await r.json(); } catch(e){}
+  return { code: r.status, ok: r.ok, j: j };
+}
+
+/* ================= 登录 / 注册 ================= */
+var regMode = false;
+function setMode(reg){
+  regMode = reg;
+  $("tabLogin").className = reg ? "" : "on";
+  $("tabReg").className = reg ? "on" : "";
+  $("authBtn").textContent = reg ? "注册并进入" : "登录";
+  $("pwdTip").textContent = reg ? "注册完就能进来了" : "没注册过？先点「注册」";
+  $("authErr").textContent = "";
+}
+$("tabLogin").onclick = function(){ setMode(false); };
+$("tabReg").onclick = function(){ setMode(true); };
+
+function showLogin(){
+  state.token = ""; state.user = ""; state.loggedIn = false;
+  localStorage.removeItem(LS_TOKEN); localStorage.removeItem(LS_USER);
+  $("meName").textContent = "未登录";
+  $("dmInput").disabled = true; $("sendBtn").disabled = true;
+  $("loginOverlay").classList.remove("hidden");
+}
+function enterRoom(){
+  state.loggedIn = true;
+  $("meName").textContent = state.user;
+  $("dmInput").disabled = false; $("sendBtn").disabled = false;
+  $("loginOverlay").classList.add("hidden");
+  $("dmInput").focus();
+}
+$("authBtn").onclick = doAuth;
+$("pwdInput").addEventListener("keydown", function(e){ if (e.key === "Enter") doAuth(); });
+async function doAuth(){
+  var nick = $("nickInput").value.trim(), pwd = $("pwdInput").value;
+  $("authErr").textContent = "";
+  if (!nick) return $("authErr").textContent = "先填个昵称";
+  if (pwd.length < 4) return $("authErr").textContent = "密码至少 4 位";
+  var btn = $("authBtn"); btn.disabled = true;
+  try {
+    if (regMode) {
+      var r1 = await api("/api/account/register", { nickname: nick, password: pwd });
+      if (!r1.ok) return $("authErr").textContent = r1.j.error || "注册失败";
+    }
+    var r2 = await api("/api/account/login", { nickname: nick, password: pwd });
+    if (!r2.ok) return $("authErr").textContent = r2.j.error || "登录失败";
+    state.token = r2.j.token; state.user = r2.j.user || nick;
+    localStorage.setItem(LS_TOKEN, state.token); localStorage.setItem(LS_USER, state.user);
+    enterRoom();
+  } catch(e) { $("authErr").textContent = "网络不通，稍后再试"; }
+  btn.disabled = false;
+}
+$("logoutBtn").onclick = async function(){
+  try { await api("/api/account/logout", { token: state.token }); } catch(e){}
+  showLogin();
+};
+
+/* 启动时校验本地 token（昵称和密码在服务端匹配过才认） */
+async function checkSession(){
+  var t = localStorage.getItem(LS_TOKEN), u = localStorage.getItem(LS_USER);
+  if (!t) return showLogin();
+  try {
+    var r = await api("/api/account/me", { token: t });
+    if (r.ok && r.j.ok) { state.token = t; state.user = r.j.user || u; enterRoom(); return; }
+  } catch(e){}
+  showLogin();
+}
+
+/* ================= 视频（hls.js） ================= */
+function startVideo(){
+  if (!CFG.src) { $("emptyText").textContent = "没有配直播流地址"; return; }
+  var url = CFG.src;
+  if (window.Hls && Hls.isSupported()) {
+    var hls = new Hls({ maxBufferLength: 20 });
+    state.hls = hls;
+    hls.loadSource(url);
+    hls.attachMedia(video);
+    hls.on(Hls.Events.MANIFEST_PARSED, function(){
+      $("stageEmpty").classList.add("hidden");
+      video.play().catch(function(){});
+    });
+    hls.on(Hls.Events.ERROR, function(_, data){
+      if (!data.fatal) return;
+      if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+        if (data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR ||
+            data.details === Hls.ErrorDetails.MANIFEST_LOAD_TIMEOUT) {
+          $("stageEmpty").classList.remove("hidden");
+          $("emptyText").textContent = "等待开播，稍等一下";
+          hls.startLoad();
+        } else hls.destroyStream();
+      } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+      else hls.destroy();
+    });
+  } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+    video.src = url;
+    video.addEventListener("loadedmetadata", function(){ $("stageEmpty").classList.add("hidden"); video.play().catch(function(){}); });
+  } else {
+    $("emptyText").textContent = "此浏览器不支持 HLS 播放";
+  }
+}
+
+/* ================= 弹幕 ================= */
+function spawnDanmaku(user, content, ts){
+  var text = String(content || "").slice(0, 100);
+  if (!text) return;
+  var now = Date.now() / 1000;
+  var lane = -1, best = 1e18;
+  for (var i = 0; i < LANES; i++) {
+    if (laneFreeAt[i] <= now) { lane = i; break; }
+    if (laneFreeAt[i] < best) { best = laneFreeAt[i]; lane = i; }
+  }
+  var el = document.createElement("span");
+  el.className = "dm";
+  var who = document.createElement("span"); who.className = "who"; who.textContent = user || "";
+  el.appendChild(who); el.appendChild(document.createTextNode(text));
+  el.style.top = (2 + lane * (100 / LANES)) + "%";
+  dmLayer.appendChild(el);
+  var w = el.offsetWidth, cW = stage.clientWidth;
+  var dur = (cW + w) / DM_SPEED;
+  el.style.setProperty("--dmx", "-" + (cW + w + 10) + "px");
+  el.style.animationDuration = dur + "s";
+  laneFreeAt[lane] = now + dur;
+  el.addEventListener("animationend", function(){ el.remove(); });
+  setTimeout(function(){ if (el.parentNode) el.remove(); }, dur * 1000 + 2000);
+  return dur;
+}
+
+var sendTimer = null;
+$("sendBtn").onclick = sendDanmaku;
+$("dmInput").addEventListener("keydown", function(e){ if (e.key === "Enter") sendDanmaku(); });
+async function sendDanmaku(){
+  var input = $("dmInput"), content = input.value.trim();
+  if (!content || !state.loggedIn) return;
+  input.value = "";
+  spawnDanmaku(state.user, content, Date.now() / 1000);
+  $("seen").add("self|" + state.user + "|" + content);
+  try {
+    var r = await api("/api/danmaku", { token: state.token, user: state.user, content: content });
+    if (r.code === 401) { showLogin(); return; }
+    if (!r.ok) hint(r.j.error || "发送失败", true);
+  } catch(e) { hint("网络不通，发送失败", true); }
+}
+
+function pollDanmaku(){
+  if (!state.loggedIn) return;
+  api("/api/danmaku?limit=20").then(function(r){
+    if (!r.ok || !Array.isArray(r.j)) return;
+    var now = Date.now() / 1000;
+    r.j.forEach(function(it){
+      var key = it.user + "|" + it.ts + "|" + it.content;
+      if (state.seen.has(key)) return;
+      state.seen.add(key);
+      if (state.lastTs && it.ts < state.lastTs - 2) return;   // 跳历史
+      if (now - it.ts > 3) return;                              // 只播 3 秒内的
+      spawnDanmaku(it.user, it.content, it.ts);
+      state.lastTs = Math.max(state.lastTs, it.ts || 0);
+    });
+    if (state.seen.size > 500) state.seen.clear();
+  }).catch(function(){});
+}
+setInterval(pollDanmaku, 2500);
+
+/* ================= 启动 ================= */
+startVideo();
+checkSession();
+if (CFG.api) hint(""); else hint("API 未配置：打开页面时带上 ?api=...&src=...", true);
+window.addEventListener("resize", function(){}, { passive: true });
+</script>
 </body>
 </html>
