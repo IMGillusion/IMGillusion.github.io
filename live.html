@@ -307,7 +307,7 @@ async function sendDanmaku(){
   if (!content || !state.loggedIn) return;
   input.value = "";
   spawnDanmaku(state.user, content, Date.now() / 1000);
-  $("seen").add("self|" + state.user + "|" + content);
+  state.seen.add("self|" + state.user + "|" + content);
   try {
     var r = await api("/api/danmaku", { token: state.token, user: state.user, content: content });
     if (r.code === 401) { showLogin(); return; }
