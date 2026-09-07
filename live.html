@@ -126,21 +126,17 @@ input{font-family:inherit; outline:none}
   <div class="card">
     <h2>进入直播间</h2>
     <div class="sub">发言前先报名字，防止有人乱说话</div>
-    <div class="tabs">
-      <button id="tabLogin" class="on">登录</button>
-      <button id="tabReg">注册</button>
-    </div>
     <div class="field">
       <label>昵称</label>
       <input id="nickInput" type="text" maxlength="20" placeholder="你的昵称" autocomplete="off">
     </div>
     <div class="field">
       <label>密码</label>
-      <input id="pwdInput" type="password" maxlength="64" placeholder="至少 4 位">
+      <input id="pwdInput" type="password" maxlength="64" placeholder="至少 4 位，第一次会自动帮你注册">
     </div>
     <div class="err" id="authErr"></div>
-    <button class="btn-primary" id="authBtn">登录</button>
-    <div class="pwd-tip" id="pwdTip">没注册过？先点「注册」</div>
+    <button class="btn-primary" id="authBtn">进入直播间</button>
+    <div class="pwd-tip" id="pwdTip">昵称和密码要记牢，之后每次都靠它进</div>
   </div>
 </div>
 
@@ -176,18 +172,7 @@ async function api(path, body){
   return { code: r.status, ok: r.ok, j: j };
 }
 
-/* ================= 登录 / 注册 ================= */
-var regMode = false;
-function setMode(reg){
-  regMode = reg;
-  $("tabLogin").className = reg ? "" : "on";
-  $("tabReg").className = reg ? "on" : "";
-  $("authBtn").textContent = reg ? "注册并进入" : "登录";
-  $("pwdTip").textContent = reg ? "注册完就能进来了" : "没注册过？先点「注册」";
-  $("authErr").textContent = "";
-}
-$("tabLogin").onclick = function(){ setMode(false); };
-$("tabReg").onclick = function(){ setMode(true); };
+/* ================= 进入（自动注册或登录） ================= */
 
 function showLogin(){
   state.token = ""; state.user = ""; state.loggedIn = false;
@@ -212,13 +197,9 @@ async function doAuth(){
   if (pwd.length < 4) return $("authErr").textContent = "密码至少 4 位";
   var btn = $("authBtn"); btn.disabled = true;
   try {
-    if (regMode) {
-      var r1 = await api("/api/account/register", { nickname: nick, password: pwd });
-      if (!r1.ok) return $("authErr").textContent = r1.j.error || "注册失败";
-    }
-    var r2 = await api("/api/account/login", { nickname: nick, password: pwd });
-    if (!r2.ok) return $("authErr").textContent = r2.j.error || "登录失败";
-    state.token = r2.j.token; state.user = r2.j.user || nick;
+    var r = await api("/api/account/enter", { nickname: nick, password: pwd });
+    if (!r.ok) { $("authErr").textContent = r.j.error || "进入失败"; btn.disabled = false; return; }
+    state.token = r.j.token; state.user = r.j.user || nick;
     localStorage.setItem(LS_TOKEN, state.token); localStorage.setItem(LS_USER, state.user);
     enterRoom();
   } catch(e) { $("authErr").textContent = "网络不通，稍后再试"; }
